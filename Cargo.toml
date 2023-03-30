@@ -16,3 +16,7 @@ path = "src/bin/hello.rs"
 [[bin]]
 name = "client"
 path = "src/bin/client.rs"
+
+[[bin]]
+name = "syncserver"
+path = "src/bin/syncserver.rs"
