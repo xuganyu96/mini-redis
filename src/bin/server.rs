@@ -1,10 +1,13 @@
-//! A synchronous Redis server: every request is blocking
-use mini_redis::{Connection, Frame};
-use mini_redis::Command;
-use tokio::net::{TcpListener, TcpStream};
+//! Asynchronous Redis server.
+//!
+//! There is a single listener on the port, but every connection will move
+//! into a new task using tokio::spawn
 use std::collections::HashMap;
+use tokio;
+use tokio::net::{ TcpListener, TcpStream };
+use mini_redis::{ Connection, Frame, Command };
+use std::sync::{ Arc, Mutex };
 use bytes::Bytes;
-use std::sync::{Arc, Mutex};
 
 type AsyncHashMap = Arc<Mutex<HashMap<String, Bytes>>>;
 
@@ -13,14 +16,15 @@ async fn main() {
     let listener = TcpListener::bind("127.0.0.1:6379").await.unwrap();
     let db: AsyncHashMap = Arc::new(Mutex::new(HashMap::new()));
 
-    loop {
+    while let Ok((stream, _)) = listener.accept().await {
         let db = db.clone();
-        let (stream, _addr) = listener.accept().await.unwrap();
-        process(stream, db).await;
+        tokio::spawn(async move {
+            shared_process(stream, db.clone()).await;
+        });
     }
 }
 
-async fn process(stream: TcpStream, db: AsyncHashMap) {
+async fn shared_process(stream: TcpStream, db: AsyncHashMap) {
     let mut connection = Connection::new(stream);
     while let Some(frame) = connection.read_frame().await.unwrap() {
         let cmd = Command::from_frame(frame).unwrap();

@@ -6,6 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+bytes = "1.4.0"
+clap = { version = "4.2.1", features = ["derive"] }
 mini-redis = "0.4"
 tokio = { version = "1.27.0", features = ["full"] }
 
@@ -20,3 +22,7 @@ path = "src/bin/client.rs"
 [[bin]]
 name = "syncserver"
 path = "src/bin/syncserver.rs"
+
+[[bin]]
+name = "server"
+path = "src/bin/server.rs"
