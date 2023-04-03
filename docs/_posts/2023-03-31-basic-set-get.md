@@ -127,3 +127,64 @@ cargo run --bin client -- get hello
 cargo run --bin client -- set hello mom
 cargo run --bin client -- get hello
 ```
+
+# The server
+
+## Concurrent hash map
+The core of the logic is a `HashMap<T, U>`, for which we are interested in two methods: `insert(key, val)` and `get(key)`. In a synchronous context, the usage is straightforward:
+
+```rust
+use std::collections::HashMap;
+
+fn main() {
+    let mut db: HashMap<String, String> = HashMap::new();
+    db.insert("hello".to_string(), "world".to_string());
+    println!("{:?}", db.get("hello"));
+}
+```
+
+In an asynchronous context, however, we have to use a mutex to ensure thread-safety. We will also have to use a reference-counted pointer to comply with the rules of the borrow checker:
+
+```rust
+use std::sync::{ Arc, Mutex };
+use std::collections::HashMap;
+
+type AsyncHashMap<T, U> = Arc<Mutex<HashMap<T, U>>;
+```
+
+To modify the underlying hash map, the thread first needs to obtain a lock on the mutex. Calling `Mutex::lock` returns a `Result<MutexGuard>`, where the `MutexGuard` implements the `DerefMut` trait and can thus be used as if it is a mutable reference:
+
+```rust
+fn process(
+    //  ... other arguments ...
+    db: AsyncHashMap<String, Bytes>,
+) {
+    // ...
+    db.lock().unwrap()  // => MutexGuard
+        .insert(key, value);   // => can call insert through DerefMut
+    
+    // ...
+    let val = db.lock().unwrap()
+        .get(key);
+}
+```
+
+The `Arc` smart pointer works just like `Rc`: we can use `clone` to create numerous references on the same mutex:
+
+```rust
+#[tokio::main]
+async fn main() {
+    let db: AsyncHashMap<String, Bytes> = Arc::new(Mutex::new(HashMap::new()));
+
+    // ...
+    process(..., db.clone())  // enforce borrow checker at runtime instead of
+                              // compile time
+}
+
+async fn process(
+    // ...
+    db: AsyncHashMap<String, Bytes>,
+) {
+    // ...
+}
+```

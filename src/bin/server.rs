@@ -9,22 +9,22 @@ use mini_redis::{ Connection, Frame, Command };
 use std::sync::{ Arc, Mutex };
 use bytes::Bytes;
 
-type AsyncHashMap = Arc<Mutex<HashMap<String, Bytes>>>;
+type AsyncHashMap<T, U> = Arc<Mutex<HashMap<T, U>>>;
 
 #[tokio::main]
 async fn main() {
     let listener = TcpListener::bind("127.0.0.1:6379").await.unwrap();
-    let db: AsyncHashMap = Arc::new(Mutex::new(HashMap::new()));
+    let db: AsyncHashMap<String, Bytes> = Arc::new(Mutex::new(HashMap::new()));
 
     while let Ok((stream, _)) = listener.accept().await {
         let db = db.clone();
         tokio::spawn(async move {
-            shared_process(stream, db.clone()).await;
+            process(stream, db).await;
         });
     }
 }
 
-async fn shared_process(stream: TcpStream, db: AsyncHashMap) {
+async fn process(stream: TcpStream, db: AsyncHashMap<String, Bytes>) {
     let mut connection = Connection::new(stream);
     while let Some(frame) = connection.read_frame().await.unwrap() {
         let cmd = Command::from_frame(frame).unwrap();

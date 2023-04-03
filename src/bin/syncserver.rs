@@ -6,12 +6,12 @@ use std::collections::HashMap;
 use bytes::Bytes;
 use std::sync::{Arc, Mutex};
 
-type AsyncHashMap = Arc<Mutex<HashMap<String, Bytes>>>;
+type AsyncHashMap<T, U> = Arc<Mutex<HashMap<T, U>>>;
 
 #[tokio::main]
 async fn main() {
     let listener = TcpListener::bind("127.0.0.1:6379").await.unwrap();
-    let db: AsyncHashMap = Arc::new(Mutex::new(HashMap::new()));
+    let db: AsyncHashMap<String, Bytes> = Arc::new(Mutex::new(HashMap::new()));
 
     loop {
         let db = db.clone();
@@ -20,7 +20,7 @@ async fn main() {
     }
 }
 
-async fn process(stream: TcpStream, db: AsyncHashMap) {
+async fn process(stream: TcpStream, db: AsyncHashMap<String, Bytes>) {
     let mut connection = Connection::new(stream);
     while let Some(frame) = connection.read_frame().await.unwrap() {
         let cmd = Command::from_frame(frame).unwrap();
