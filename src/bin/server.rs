@@ -11,11 +11,8 @@ use std::hash::{ Hash, Hasher };
 use std::collections::hash_map::DefaultHasher;
 use bytes::Bytes;
 
-type AsyncHashMap<T, U> = Arc<Mutex<HashMap<T, U>>>;
-
-type Shard<T, U> = Mutex<HashMap<T, U>>;
 struct ShardedHashMap<T, U> {
-    shards: Vec<Shard<T, U>>,
+    shards: Vec<Mutex<HashMap<T, U>>>,
 }
 
 impl<T: Hash + Eq, U: Clone> ShardedHashMap<T, U> {

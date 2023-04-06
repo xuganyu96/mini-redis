@@ -20,8 +20,8 @@ name = "client"
 path = "src/bin/client.rs"
 
 [[bin]]
-name = "syncserver"
-path = "src/bin/syncserver.rs"
+name = "single_threaded_server"
+path = "src/bin/single_threaded_server.rs"
 
 [[bin]]
 name = "server"
