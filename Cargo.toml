@@ -30,3 +30,7 @@ path = "src/bin/server.rs"
 [[bin]]
 name = "mpsc_client"
 path = "src/bin/mpsc_client.rs"
+
+[[bin]]
+name = "echo_server"
+path = "src/bin/echo_server.rs"
