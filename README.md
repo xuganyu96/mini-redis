@@ -42,6 +42,12 @@ Given a `key: &str`, send a `GET <key>` command to the server. The `Ok` variant 
 Given a `key: &str`, send a `POP <key>` command to the server. The `Ok` variant of the response holds a `Result<String, ...>` where the `Ok` variant holds the value associated with the key popped, and the `Err` variant holds any error that the server returns (e.g. for when there is no keey to pop)
 
 # Server
+The server side application has two main parts:
+
+- Parsing the command from the TCP stream and writing response to the TCP socket
+- Making the appropriate state mutation, most likely on a HashMap
+
+The majority fo the server logic has already been implemented once while reading through the mini-redis tutorial, so there is not much to cover on the server side.
 
 # Shared layers of abstraction
 There are several layers of abstraction that are shared between server and clients, most of which are related to serialization and deserialization:
@@ -66,3 +72,5 @@ Client establishes a connection: it holds a TCP socket wrapped inside a `Connect
         * `Connection` calls `socket.try_write` to write the bytes
     * `client` calls `connection.read_response()`, which returns the frame that the server returns
     * `client` parses the response frame into the correct return value for this call
+
+I think it is okay if the response from the server is just frames without additional abstraction, and the client method call is responsible for parsing the frames into the correct output, be it `Result<()>`, `Result<Option<String>>`, or `Result<Result<String, ...>>`.
