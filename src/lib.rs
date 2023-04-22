@@ -84,15 +84,23 @@ impl Command {
 enum Frame {
     Simple(String),
     Error(String),
-    Integer(u64),
+    Integer(i64),
     Bulk(Vec<u8>),
+    Null,
     Array(Vec<Frame>),
 }
 
 impl Frame {
     /// Serialize a frame into a byte array for transmission over the network
-    fn as_bytes(&self) -> Bytes {
-        todo!();
+    fn serialize(&self) -> Bytes {
+        return match self {
+            Self::Simple(_) => self._serialize_simple_string(),
+            Self::Error(_) => self._serialize_error(),
+            Self::Integer(_) => self._serialize_integer(),
+            Self::Bulk(_) => self._serialize_bulk_string(),
+            Self::Null => self._serialize_null(),
+            Self::Array(_) => self._serialize_array(),
+        };
     }
 
     /// Serialize a simple string to a byte array.
@@ -145,6 +153,33 @@ impl Frame {
         unreachable!("Self is not Frame::Bulk");
     }
 
+    /// Serialize a Null frame, which is a Bulk frame with a length of -1
+    fn _serialize_null(&self) -> Bytes {
+        // "$-1<CRLF>"
+        if let Self::Null = self {
+            let buf = format!("$-1{CRLF}");
+            return Bytes::copy_from_slice(&buf.as_bytes());
+        }
+        unreachable!("Self is not Frame::Null");
+    }
+
+    /// Serialize an Array frame by recursively calling "serialize" on its
+    /// elements
+    fn _serialize_array(&self) -> Bytes {
+        if let Self::Array(v) = self {
+            let nelems = v.len();
+            let prefix = Bytes::from(format!("*{nelems}{CRLF}").as_bytes().to_vec());
+            let elems: Bytes = v
+                .iter()
+                .map(|frame| frame.serialize())
+                .collect::<Vec<Bytes>>()
+                .concat()
+                .into();
+            return vec![prefix, elems].concat().into();
+        }
+        unreachable!("Self is not Frame::Array");
+    }
+
     /// Read the input byte array and check if there is a valid frame inside.
     /// If yes, return the parsed frame in the "Some" variant, else return
     /// None
@@ -189,7 +224,7 @@ mod tests {
         let simple = Frame::Simple("OK".into());
         let expected: Vec<u8> = b"+OK\r\n".to_vec();
         assert_eq!(
-            simple._serialize_simple_string(),
+            simple.serialize(),
             Bytes::copy_from_slice(&expected)
         );
     }
@@ -198,7 +233,7 @@ mod tests {
     fn test_integer_serialization() {
         let num = Frame::Integer(0);
         let expected = b":0\r\n";
-        assert_eq!(num._serialize_integer(), Bytes::copy_from_slice(expected));
+        assert_eq!(num.serialize(), Bytes::copy_from_slice(expected));
     }
 
     #[test]
@@ -206,8 +241,26 @@ mod tests {
         let bulk = Frame::Bulk(vec![b'6', b'9', b'4', b'2', b'0']);
         let expected = b"$5\r\n69420\r\n";
         assert_eq!(
-            bulk._serialize_bulk_string(),
+            bulk.serialize(),
             Bytes::copy_from_slice(expected)
+        );
+    }
+
+    #[test]
+    fn test_null_serialization() {
+        let null = Frame::Null;
+        assert_eq!(null.serialize(), Bytes::from(b"$-1\r\n".to_vec()));
+    }
+
+    #[test]
+    fn test_array_serialization() {
+        let set = Frame::Simple("SET".into());
+        let key = Frame::Bulk("foo".as_bytes().to_vec());
+        let val = Frame::Bulk("bar".as_bytes().to_vec());
+        let cmd = Frame::Array(vec![set, key, val]);
+        assert_eq!(
+            cmd.serialize(),
+            Bytes::from(b"*3\r\n+SET\r\n$3\r\nfoo\r\n$3\r\nbar\r\n".to_vec())
         );
     }
 }
