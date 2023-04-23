@@ -74,3 +74,36 @@ Client establishes a connection: it holds a TCP socket wrapped inside a `Connect
     * `client` parses the response frame into the correct return value for this call
 
 I think it is okay if the response from the server is just frames without additional abstraction, and the client method call is responsible for parsing the frames into the correct output, be it `Result<()>`, `Result<Option<String>>`, or `Result<Result<String, ...>>`.
+
+## Parsing frames from bytes
+Recall the format of the RESP frame data types:
+
+* Simple string: `+<data><CRLF>`
+* Error: `-<data><CRLF>`
+* Integer: `-<i64 number><CRLF>`
+* Bulk: `$<len><CRLF><bytes><CRLF>`
+* Array: `*<nelems><CRLF><frame1><frame2>`
+
+The core function:
+
+```rust
+/// Start reading where the internal cursor is. If bytes[cursor...] contains a
+/// valid frame, then the frame is parsed and returned, and the cursor is
+/// advanced to the first byte that is after the frame (possibly outside the
+/// byte array)
+fn parse_frame(&mut bytes: Bytes) -> Option<Frame>
+```
+
+Parsing simple string, errors, and integer is straightforward.
+
+Parsing bulk string and array both require a first step that acquire the "size of the remainder"
+
+For bulk string an additional helper:
+
+```rust
+/// Return a copy of bytes[cursor..cursor+size] as the "bulk string" in a bulk
+/// string frame. If the remainder is not ended with CRLF, return an error since
+/// the frame is technically illegal
+fn read_bulk_string(&mut bytes: Bytes, size: usize) -> Result<Bytes> {
+}
+```
