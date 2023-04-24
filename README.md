@@ -107,3 +107,5 @@ For bulk string an additional helper:
 fn read_bulk_string(&mut bytes: Bytes, size: usize) -> Result<Bytes> {
 }
 ```
+
+As a part of the `Deref<Target=[u8]>` implementation, we get the method `starts_with(&self, needle: &[T]) -> bool` which can be useful for checking the first byte of a byte array.
