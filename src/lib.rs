@@ -1,5 +1,5 @@
 //! Shared layers of abstraction: Bytes, Frame, Command, Connection, Client
-use bytes::Bytes;
+use bytes::{ Buf, Bytes };
 use std::error::Error;
 use tokio::net::{TcpListener, TcpStream};
 
@@ -81,7 +81,8 @@ impl Command {
 
 /// The various RESP data types. The data types are explained here:
 /// https://redis.io/docs/reference/protocol-spec/
-enum Frame {
+#[derive(Debug, PartialEq, Eq)]
+pub enum Frame {
     Simple(String),
     Error(String),
     Integer(i64),
@@ -184,7 +185,43 @@ impl Frame {
     /// If yes, return the parsed frame in the "Some" variant, else return
     /// None
     fn parse(bytes: &Bytes) -> Option<Frame> {
-        todo!();
+        if bytes.starts_with(b"+") {
+            if let Some(msg) = Self::_parse_binary_safe_string(&mut bytes.slice(1..)) {
+                return Some(Frame::Simple(msg));
+            }
+            return None;
+        } else if bytes.starts_with(b"-") {
+            if let Some(msg) = Self::_parse_binary_safe_string(&mut bytes.slice(1..)) {
+                return Some(Frame::Error(msg));
+            }
+            return None;
+        } else if bytes.starts_with(b":") {
+            if let Some(num) = Self::_parse_binary_safe_string(&mut bytes.slice(1..)) {
+                if let Ok(num) = num.parse::<i64>() {
+                    return Some(Frame::Integer(num));
+                }
+            }
+            return None;
+        } else if bytes.starts_with(b"$") {
+        } else if bytes.starts_with(b"*") {
+        }
+        return None;
+    }
+
+    /// Given some bytes that are assumed to be binary safe, extract the
+    /// string between the start of the bytes and the first CRLF. If the bytes
+    /// do not contain CRLF, return None
+    fn _parse_binary_safe_string(bytes: &mut Bytes) -> Option<String> {
+        let mut msg = vec![];
+        
+        while bytes.has_remaining() && !bytes.starts_with(CRLF.as_bytes()) {
+            msg.push(bytes.get_u8());
+        }
+
+        if bytes.has_remaining() {
+            return Some(String::from_utf8(msg).unwrap());
+        }
+        return None;
     }
 }
 
@@ -262,5 +299,97 @@ mod tests {
             cmd.serialize(),
             Bytes::from(b"*3\r\n+SET\r\n$3\r\nfoo\r\n$3\r\nbar\r\n".to_vec())
         );
+    }
+
+    #[test]
+    fn test_simple_string_deserialization() {
+        assert_eq!(
+            Frame::parse(&Bytes::from("+SET\r\n")),
+            Some(Frame::Simple("SET".into())),
+        );
+
+        assert_eq!(
+            Frame::parse(&Bytes::from("+SET\r\n+++++")),
+            Some(Frame::Simple("SET".into())),
+        );
+
+        assert_eq!(
+            Frame::parse(&Bytes::from("+SET\r")),
+            None,
+        );
+
+        assert_eq!(
+            Frame::parse(&Bytes::from("+\r\n")),
+            Some(Frame::Simple("".into())),
+        );
+    }
+
+    #[test]
+    fn test_error_deserialization() {
+        assert_eq!(
+            Frame::parse(&Bytes::from("-Key not found\r\n")),
+            Some(Frame::Error("Key not found".into())),
+        );
+
+        assert_eq!(
+            Frame::parse(&Bytes::from("-Key not found\r\n-----")),
+            Some(Frame::Error("Key not found".into())),
+        );
+
+        assert_eq!(
+            Frame::parse(&Bytes::from("-Key not found\r")),
+            None,
+        );
+
+        assert_eq!(
+            Frame::parse(&Bytes::from("-\r\n")),
+            Some(Frame::Error("".into())),
+        );
+    }
+
+    #[test]
+    fn test_integer_deserialization() {
+        assert_eq!(
+            Frame::parse(&Bytes::from(":0\r\n")),
+            Some(Frame::Integer(0)),
+        );
+
+        assert_eq!(
+            Frame::parse(&Bytes::from(":1\r\n")),
+            Some(Frame::Integer(1)),
+        );
+
+        assert_eq!(
+            Frame::parse(&Bytes::from(":-1\r\n")),
+            Some(Frame::Integer(-1)),
+        );
+        
+        assert_eq!(
+            Frame::parse(&Bytes::from(":9223372036854775807\r\n")),
+            Some(Frame::Integer(9223372036854775807)),
+        );
+        
+        assert_eq!(
+            Frame::parse(&Bytes::from(":-9223372036854775808\r\n")),
+            Some(Frame::Integer(-9223372036854775808)),
+        );
+        
+        assert_eq!(
+            Frame::parse(&Bytes::from(":9223372036854775808\r\n")),
+            None,
+        );
+        
+    }
+
+    #[test]
+    fn test_bulk_string_deserialization() {
+    }
+
+    #[test]
+    fn test_null_frame_deserialization() {
+    }
+
+    #[test]
+    fn test_array_deserialization() {
     }
 }
