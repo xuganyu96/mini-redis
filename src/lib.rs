@@ -184,27 +184,33 @@ impl Frame {
     /// Read the input byte array and check if there is a valid frame inside.
     /// If yes, return the parsed frame in the "Some" variant, else return
     /// None
-    fn parse(bytes: &Bytes) -> Option<Frame> {
-        if bytes.starts_with(b"+") {
-            if let Some(msg) = Self::_parse_binary_safe_string(&mut bytes.slice(1..)) {
-                return Some(Frame::Simple(msg));
-            }
+    fn parse(bytes: &mut Bytes) -> Option<Frame> {
+        if !bytes.has_remaining() {
             return None;
-        } else if bytes.starts_with(b"-") {
-            if let Some(msg) = Self::_parse_binary_safe_string(&mut bytes.slice(1..)) {
-                return Some(Frame::Error(msg));
-            }
-            return None;
-        } else if bytes.starts_with(b":") {
-            if let Some(num) = Self::_parse_binary_safe_string(&mut bytes.slice(1..)) {
-                if let Ok(num) = num.parse::<i64>() {
-                    return Some(Frame::Integer(num));
-                }
-            }
-            return None;
-        } else if bytes.starts_with(b"$") {
-        } else if bytes.starts_with(b"*") {
         }
+        match bytes.get_u8() {
+            b'+' => {
+                if let Some(msg) = Self::_parse_binary_safe_string(bytes) {
+                    return Some(Frame::Simple(msg));
+                }
+            },
+            b'-' => {
+                if let Some(msg) = Self::_parse_binary_safe_string(bytes) {
+                    return Some(Frame::Error(msg));
+                }
+            },
+            b':' => {
+                if let Some(num) = Self::_parse_binary_safe_string(bytes) {
+                    if let Ok(num) = num.parse::<i64>() {
+                        return Some(Frame::Integer(num));
+                    }
+                }
+            },
+            b'$' => todo!(),
+            b'*' => todo!(),
+            _ => (),
+        }
+
         return None;
     }
 
@@ -304,22 +310,22 @@ mod tests {
     #[test]
     fn test_simple_string_deserialization() {
         assert_eq!(
-            Frame::parse(&Bytes::from("+SET\r\n")),
+            Frame::parse(&mut Bytes::from("+SET\r\n")),
             Some(Frame::Simple("SET".into())),
         );
 
         assert_eq!(
-            Frame::parse(&Bytes::from("+SET\r\n+++++")),
+            Frame::parse(&mut Bytes::from("+SET\r\n+++++")),
             Some(Frame::Simple("SET".into())),
         );
 
         assert_eq!(
-            Frame::parse(&Bytes::from("+SET\r")),
+            Frame::parse(&mut Bytes::from("+SET\r")),
             None,
         );
 
         assert_eq!(
-            Frame::parse(&Bytes::from("+\r\n")),
+            Frame::parse(&mut Bytes::from("+\r\n")),
             Some(Frame::Simple("".into())),
         );
     }
@@ -327,22 +333,22 @@ mod tests {
     #[test]
     fn test_error_deserialization() {
         assert_eq!(
-            Frame::parse(&Bytes::from("-Key not found\r\n")),
+            Frame::parse(&mut Bytes::from("-Key not found\r\n")),
             Some(Frame::Error("Key not found".into())),
         );
 
         assert_eq!(
-            Frame::parse(&Bytes::from("-Key not found\r\n-----")),
+            Frame::parse(&mut Bytes::from("-Key not found\r\n-----")),
             Some(Frame::Error("Key not found".into())),
         );
 
         assert_eq!(
-            Frame::parse(&Bytes::from("-Key not found\r")),
+            Frame::parse(&mut Bytes::from("-Key not found\r")),
             None,
         );
 
         assert_eq!(
-            Frame::parse(&Bytes::from("-\r\n")),
+            Frame::parse(&mut Bytes::from("-\r\n")),
             Some(Frame::Error("".into())),
         );
     }
@@ -350,32 +356,32 @@ mod tests {
     #[test]
     fn test_integer_deserialization() {
         assert_eq!(
-            Frame::parse(&Bytes::from(":0\r\n")),
+            Frame::parse(&mut Bytes::from(":0\r\n")),
             Some(Frame::Integer(0)),
         );
 
         assert_eq!(
-            Frame::parse(&Bytes::from(":1\r\n")),
+            Frame::parse(&mut Bytes::from(":1\r\n")),
             Some(Frame::Integer(1)),
         );
 
         assert_eq!(
-            Frame::parse(&Bytes::from(":-1\r\n")),
+            Frame::parse(&mut Bytes::from(":-1\r\n")),
             Some(Frame::Integer(-1)),
         );
         
         assert_eq!(
-            Frame::parse(&Bytes::from(":9223372036854775807\r\n")),
+            Frame::parse(&mut Bytes::from(":9223372036854775807\r\n")),
             Some(Frame::Integer(9223372036854775807)),
         );
         
         assert_eq!(
-            Frame::parse(&Bytes::from(":-9223372036854775808\r\n")),
+            Frame::parse(&mut Bytes::from(":-9223372036854775808\r\n")),
             Some(Frame::Integer(-9223372036854775808)),
         );
         
         assert_eq!(
-            Frame::parse(&Bytes::from(":9223372036854775808\r\n")),
+            Frame::parse(&mut Bytes::from(":9223372036854775808\r\n")),
             None,
         );
         
