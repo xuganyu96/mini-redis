@@ -1,5 +1,5 @@
 //! Shared layers of abstraction: Bytes, Frame, Command, Connection, Client
-use bytes::{ Buf, Bytes };
+use bytes::{Buf, Bytes};
 use std::error::Error;
 use tokio::net::{TcpListener, TcpStream};
 
@@ -86,7 +86,7 @@ pub enum Frame {
     Simple(String),
     Error(String),
     Integer(i64),
-    Bulk(Vec<u8>),
+    Bulk(Bytes),
     Null,
     Array(Vec<Frame>),
 }
@@ -193,20 +193,33 @@ impl Frame {
                 if let Some(msg) = Self::_parse_binary_safe_string(bytes) {
                     return Some(Frame::Simple(msg));
                 }
-            },
+            }
             b'-' => {
                 if let Some(msg) = Self::_parse_binary_safe_string(bytes) {
                     return Some(Frame::Error(msg));
                 }
-            },
+            }
             b':' => {
                 if let Some(num) = Self::_parse_binary_safe_string(bytes) {
                     if let Ok(num) = num.parse::<i64>() {
                         return Some(Frame::Integer(num));
                     }
                 }
-            },
-            b'$' => todo!(),
+            }
+            b'$' => {
+                // Read until the first CRLF to parse the number of bytes
+                if let Some(nbytes) = Self::_parse_binary_safe_string(bytes) {
+                    if let Ok(nbytes) = nbytes.parse::<usize>() {
+                        // bytes[0..nbytes] should be the content
+                        // bytes[nbytes..nbytes+2] should be another CRLF
+                        if bytes.remaining() >= nbytes + 2
+                            && bytes.slice(nbytes..nbytes + 2).starts_with(CRLF.as_bytes())
+                        {
+                            return Some(Frame::Bulk(Bytes::from(bytes.slice(0..nbytes))));
+                        }
+                    }
+                }
+            }
             b'*' => todo!(),
             _ => (),
         }
@@ -219,12 +232,14 @@ impl Frame {
     /// do not contain CRLF, return None
     fn _parse_binary_safe_string(bytes: &mut Bytes) -> Option<String> {
         let mut msg = vec![];
-        
+
         while bytes.has_remaining() && !bytes.starts_with(CRLF.as_bytes()) {
             msg.push(bytes.get_u8());
         }
 
         if bytes.has_remaining() {
+            // CRLF should be consumed, as well
+            bytes.advance(CRLF.as_bytes().len());
             return Some(String::from_utf8(msg).unwrap());
         }
         return None;
@@ -266,10 +281,7 @@ mod tests {
     fn test_simple_string_serialization() {
         let simple = Frame::Simple("OK".into());
         let expected: Vec<u8> = b"+OK\r\n".to_vec();
-        assert_eq!(
-            simple.serialize(),
-            Bytes::copy_from_slice(&expected)
-        );
+        assert_eq!(simple.serialize(), Bytes::copy_from_slice(&expected));
     }
 
     #[test]
@@ -281,12 +293,9 @@ mod tests {
 
     #[test]
     fn test_bulk_string_serialization() {
-        let bulk = Frame::Bulk(vec![b'6', b'9', b'4', b'2', b'0']);
+        let bulk = Frame::Bulk(Bytes::from(vec![b'6', b'9', b'4', b'2', b'0']));
         let expected = b"$5\r\n69420\r\n";
-        assert_eq!(
-            bulk.serialize(),
-            Bytes::copy_from_slice(expected)
-        );
+        assert_eq!(bulk.serialize(), Bytes::copy_from_slice(expected));
     }
 
     #[test]
@@ -298,8 +307,8 @@ mod tests {
     #[test]
     fn test_array_serialization() {
         let set = Frame::Simple("SET".into());
-        let key = Frame::Bulk("foo".as_bytes().to_vec());
-        let val = Frame::Bulk("bar".as_bytes().to_vec());
+        let key = Frame::Bulk(Bytes::from("foo"));
+        let val = Frame::Bulk(Bytes::from("bar"));
         let cmd = Frame::Array(vec![set, key, val]);
         assert_eq!(
             cmd.serialize(),
@@ -319,10 +328,7 @@ mod tests {
             Some(Frame::Simple("SET".into())),
         );
 
-        assert_eq!(
-            Frame::parse(&mut Bytes::from("+SET\r")),
-            None,
-        );
+        assert_eq!(Frame::parse(&mut Bytes::from("+SET\r")), None,);
 
         assert_eq!(
             Frame::parse(&mut Bytes::from("+\r\n")),
@@ -342,10 +348,7 @@ mod tests {
             Some(Frame::Error("Key not found".into())),
         );
 
-        assert_eq!(
-            Frame::parse(&mut Bytes::from("-Key not found\r")),
-            None,
-        );
+        assert_eq!(Frame::parse(&mut Bytes::from("-Key not found\r")), None,);
 
         assert_eq!(
             Frame::parse(&mut Bytes::from("-\r\n")),
@@ -369,33 +372,31 @@ mod tests {
             Frame::parse(&mut Bytes::from(":-1\r\n")),
             Some(Frame::Integer(-1)),
         );
-        
+
         assert_eq!(
             Frame::parse(&mut Bytes::from(":9223372036854775807\r\n")),
             Some(Frame::Integer(9223372036854775807)),
         );
-        
+
         assert_eq!(
             Frame::parse(&mut Bytes::from(":-9223372036854775808\r\n")),
             Some(Frame::Integer(-9223372036854775808)),
         );
-        
+
         assert_eq!(
             Frame::parse(&mut Bytes::from(":9223372036854775808\r\n")),
             None,
         );
-        
     }
 
     #[test]
     fn test_bulk_string_deserialization() {
+        todo!();
     }
 
     #[test]
-    fn test_null_frame_deserialization() {
-    }
+    fn test_null_frame_deserialization() {}
 
     #[test]
-    fn test_array_deserialization() {
-    }
+    fn test_array_deserialization() {}
 }
