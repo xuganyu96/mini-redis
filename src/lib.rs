@@ -207,6 +207,11 @@ impl Frame {
                 }
             }
             b'$' => {
+                // Check against Null frame
+                if bytes.starts_with(b"-1\r\n") {
+                    return Some(Frame::Null);
+                }
+
                 // Read until the first CRLF to parse the number of bytes
                 if let Some(nbytes) = Self::_parse_binary_safe_string(bytes) {
                     if let Ok(nbytes) = nbytes.parse::<usize>() {
@@ -391,11 +396,47 @@ mod tests {
 
     #[test]
     fn test_bulk_string_deserialization() {
-        todo!();
+        // Empty bulk string
+        assert_eq!(
+            Frame::parse(&mut Bytes::from("$0\r\n\r\n")),
+            Some(Frame::Bulk(Bytes::new())),
+        );
+
+        // Non-empty bulk string
+        assert_eq!(
+            Frame::parse(&mut Bytes::from("$36\r\n那么古尔丹，代价是什么呢\r\n")),
+            Some(Frame::Bulk(Bytes::from("那么古尔丹，代价是什么呢")))
+        );
+
+        // Binary unsafe string
+        assert_eq!(
+            Frame::parse(&mut Bytes::from(b"$2\r\n\r\n\r\n".to_vec())),
+            Some(Frame::Bulk(Bytes::from(b"\r\n".to_vec())))
+        );
+
+        // Incomplete
+        assert_eq!(Frame::parse(&mut Bytes::from("$10\r\n0123456789")), None);
+
+        // Inconsistent number
+        assert_eq!(
+            Frame::parse(&mut Bytes::from("$10\r\n0123456\r\n")),
+            None,
+        );
+
+        // Noise at the end
+        assert_eq!(
+            Frame::parse(&mut Bytes::from("$10\r\n0123456789\r\nxxxxxx")),
+            Some(Frame::Bulk(Bytes::from("0123456789")))
+        );
     }
 
     #[test]
-    fn test_null_frame_deserialization() {}
+    fn test_null_frame_deserialization() {
+        assert_eq!(
+            Frame::parse(&mut Bytes::from("$-1\r\n")),
+            Some(Frame::Null)
+        );
+    }
 
     #[test]
     fn test_array_deserialization() {}
