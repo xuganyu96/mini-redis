@@ -220,12 +220,32 @@ impl Frame {
                         if bytes.remaining() >= nbytes + 2
                             && bytes.slice(nbytes..nbytes + 2).starts_with(CRLF.as_bytes())
                         {
-                            return Some(Frame::Bulk(Bytes::from(bytes.slice(0..nbytes))));
+                            let frame = Frame::Bulk(Bytes::from(bytes.slice(0..nbytes)));
+                            bytes.advance(nbytes + 2);
+                            return Some(frame);
                         }
                     }
                 }
             }
-            b'*' => todo!(),
+            b'*' => {
+                // Parsing an array: first obtain the number of elements, then
+                // fill a Vector with that number of elements
+                if let Some(nelems) = Self::_parse_binary_safe_string(bytes) {
+                    if let Ok(nelems) = nelems.parse::<usize>() {
+                        let mut elems = vec![];
+
+                        for _ in 0..nelems {
+                            if let Some(frame) = Self::parse(bytes) {
+                                elems.push(frame);
+                            } else {
+                                return None;
+                            }
+                        }
+
+                        return Some(Frame::Array(elems));
+                    }
+                }
+            }
             _ => (),
         }
 
@@ -418,10 +438,7 @@ mod tests {
         assert_eq!(Frame::parse(&mut Bytes::from("$10\r\n0123456789")), None);
 
         // Inconsistent number
-        assert_eq!(
-            Frame::parse(&mut Bytes::from("$10\r\n0123456\r\n")),
-            None,
-        );
+        assert_eq!(Frame::parse(&mut Bytes::from("$10\r\n0123456\r\n")), None,);
 
         // Noise at the end
         assert_eq!(
@@ -432,12 +449,28 @@ mod tests {
 
     #[test]
     fn test_null_frame_deserialization() {
-        assert_eq!(
-            Frame::parse(&mut Bytes::from("$-1\r\n")),
-            Some(Frame::Null)
-        );
+        assert_eq!(Frame::parse(&mut Bytes::from("$-1\r\n")), Some(Frame::Null));
     }
 
     #[test]
-    fn test_array_deserialization() {}
+    fn test_array_deserialization() {
+        assert_eq!(
+            Frame::parse(&mut Bytes::from("*0\r\n")),
+            Some(Frame::Array(vec![]))
+        );
+
+        let some_cmd = Frame::Array(vec![
+            Frame::Simple("SET".into()),
+            Frame::Bulk(Bytes::from("foo")),
+            Frame::Bulk(Bytes::from("bar")),
+        ]);
+        assert_eq!(Frame::parse(&mut some_cmd.serialize()), Some(some_cmd),);
+
+        assert_eq!(Frame::parse(&mut Bytes::from("*3\r\n:0\r\n:1\r\n")), None);
+
+        assert_eq!(
+            Frame::parse(&mut Bytes::from("*2\r\n:0\r\n:1\r\n+++++++")),
+            Some(Frame::Array(vec![Frame::Integer(0), Frame::Integer(1)])),
+        );
+    }
 }
