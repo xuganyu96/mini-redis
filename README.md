@@ -22,6 +22,12 @@ The `connect` method might fail because the underlying TCP listener cannot be es
 If the connection is successfully established, then the client is returned in the `Ok` variant.
 
 ### Set/Get/Pop
+Redis official documentation on:
+
+- [The set command](https://redis.io/commands/set/)
+- [The get command](https://redis.io/commands/get/)
+- [The del command](https://redis.io/commands/del/)
+
 Each unit of communication with the server always begins with client sending a command, so the client object implements high-level methods that correspond to the set of Redis commands that I want to support, which at this moment there are three: `SET` for setting a key, `GET` for getting a key, and `POP` for deleting a key
 
 For each command that the client sends, the server will respond, sometimes with a status (e.g. if the client send a `SET` command) and sometimes with additional data (e.g. if the client sends a `GET` command). This means that client object's "command" calls expect to return some kind of response.
