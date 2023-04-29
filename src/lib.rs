@@ -265,7 +265,9 @@ impl Frame {
         if bytes.has_remaining() {
             // CRLF should be consumed, as well
             bytes.advance(CRLF.as_bytes().len());
-            return Some(String::from_utf8(msg).unwrap());
+            if let Ok(msg) = String::from_utf8(msg) {
+                return Some(msg);
+            }
         }
         return None;
     }
