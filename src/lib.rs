@@ -468,6 +468,17 @@ mod tests {
         ]);
         assert_eq!(Frame::parse(&mut some_cmd.serialize()), Some(some_cmd),);
 
+        let some_cmd = Frame::Array(vec![
+            Frame::Simple("DEL".into()),
+            Frame::Array(vec![
+                Frame::Bulk(Bytes::from("key1")),
+                Frame::Bulk(Bytes::from("key2")),
+                Frame::Bulk(Bytes::from("key3")),
+                Frame::Bulk(Bytes::from("key4")),
+            ]),
+        ]);
+        assert_eq!(Frame::parse(&mut some_cmd.serialize()), Some(some_cmd),);
+
         assert_eq!(Frame::parse(&mut Bytes::from("*3\r\n:0\r\n:1\r\n")), None);
 
         assert_eq!(
