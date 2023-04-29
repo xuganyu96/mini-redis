@@ -1,6 +1,3 @@
-Unknown
-
-
 # Client
 ## client object API
 `Client` is the struct through which client-side application interfaces with the database and hides the underlying abstract such as `Connection`, `Frame`, and `Command`.
@@ -58,8 +55,9 @@ The majority fo the server logic has already been implemented once while reading
 # Shared layers of abstraction
 There are several layers of abstraction that are shared between server and clients, most of which are related to serialization and deserialization:
 
-* `Bytes`, as a wrapper around a byte array `Vec<u8>`
-* `Frame`, which is parsed from `Bytes`, corresponds with the low-level data types of REdis Serialization Protocol (RESP)
+- [x] `Bytes`, as a wrapper around a byte array `Vec<u8>`  
+I will just use [`bytes`](https://crates.io/crates/bytes)
+- [x] (Finished, April 28, 2023) `Frame`, which is parsed from `Bytes`, corresponds with the low-level data types of REdis Serialization Protocol (RESP)
     * Simple string
     * Error
     * Bulk string (including NULL)
@@ -80,38 +78,3 @@ Client establishes a connection: it holds a TCP socket wrapped inside a `Connect
     * `client` parses the response frame into the correct return value for this call
 
 I think it is okay if the response from the server is just frames without additional abstraction, and the client method call is responsible for parsing the frames into the correct output, be it `Result<()>`, `Result<Option<String>>`, or `Result<Result<String, ...>>`.
-
-## Parsing frames from bytes
-Recall the format of the RESP frame data types:
-
-* Simple string: `+<data><CRLF>`
-* Error: `-<data><CRLF>`
-* Integer: `-<i64 number><CRLF>`
-* Bulk: `$<len><CRLF><bytes><CRLF>`
-* Array: `*<nelems><CRLF><frame1><frame2>`
-
-The core function:
-
-```rust
-/// Start reading where the internal cursor is. If bytes[cursor...] contains a
-/// valid frame, then the frame is parsed and returned, and the cursor is
-/// advanced to the first byte that is after the frame (possibly outside the
-/// byte array)
-fn parse_frame(&mut bytes: Bytes) -> Option<Frame>
-```
-
-Parsing simple string, errors, and integer is straightforward.
-
-Parsing bulk string and array both require a first step that acquire the "size of the remainder"
-
-For bulk string an additional helper:
-
-```rust
-/// Return a copy of bytes[cursor..cursor+size] as the "bulk string" in a bulk
-/// string frame. If the remainder is not ended with CRLF, return an error since
-/// the frame is technically illegal
-fn read_bulk_string(&mut bytes: Bytes, size: usize) -> Result<Bytes> {
-}
-```
-
-As a part of the `Deref<Target=[u8]>` implementation, we get the method `starts_with(&self, needle: &[T]) -> bool` which can be useful for checking the first byte of a byte array.
