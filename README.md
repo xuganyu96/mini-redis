@@ -78,3 +78,48 @@ Client establishes a connection: it holds a TCP socket wrapped inside a `Connect
     * `client` parses the response frame into the correct return value for this call
 
 I think it is okay if the response from the server is just frames without additional abstraction, and the client method call is responsible for parsing the frames into the correct output, be it `Result<()>`, `Result<Option<String>>`, or `Result<Result<String, ...>>`.
+
+# Interfacing with a real Redis server
+So I ran a Redis server with Docker:
+
+```bash
+docker run --rm \
+    -p 6379:6379 \
+    redis:latest
+```
+
+Then opened a TCP connection to this server:
+
+```bash
+nc -v 127.0.0.1 6379
+```
+
+The following interaction occurred:
+
+```
+Connection to 127.0.0.1 port 6379 [tcp/*] succeeded!
+SET foo bar
++OK
+GET foo
+$3
+bar
+SET hello world
++OK
+GET hello
+$5
+world
+SET hello mom
++OK
+GET hello
+$3
+mom
+DEL hello
+:1
+SET 代价是什么 一切
++OK
+GET 代价是什么
+$6
+一切
+```
+
+So the commands are without the whole "serializing" as frame thing, and it even works with non-ASCII characters...
