@@ -1,43 +1,50 @@
-//! Echo server: listens in on a TCP port and writes back any data it receives
-use tokio::io::{ self, AsyncReadExt, AsyncWriteExt };
-use tokio::net::{ TcpListener, TcpStream };
+//! tcpecho: listens in on a Socket and returns any data that clients send
+use std::error::Error;
+use std::net::SocketAddr;
+use tokio::net::{TcpStream, TcpListener};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use bytes::BytesMut;
+use clap::Parser;
+
+/// Listens in on a socket and return any data that the clients send
+#[derive(Parser, Debug)]
+struct Args {
+    /// Set the hostname on which to run the server, defaults to 0.0.0.0
+    #[arg(long)]
+    host: Option<String>,
+
+    /// The port on which to run the server, defaults to 8000
+    #[arg(short, long)]
+    port: Option<u64>,
+}
 
 #[tokio::main]
-async fn main() -> io::Result<()> {
-    let listener = TcpListener::bind("127.0.0.1:8000").await?;
-
-    while let Ok((socket, _addr)) = listener.accept().await {
-        tokio::spawn(async move {
-            echo_manually(socket).await.unwrap();
-        });
-    }
-    return Ok(());
-}
-
-#[allow(dead_code)]
-async fn echo_with_copy(mut socket: TcpStream) {
-    // let (mut reader, mut writer) = io::split(socket);
-    let (mut reader, mut writer) = socket.split();
-    // let (mut reader, mut writer) = socket.into_split();
-    io::copy(&mut reader, &mut writer).await.unwrap();
-}
-
-#[allow(dead_code)]
-async fn echo_manually(mut socket: TcpStream) -> io::Result<()> {
-    let mut buffer = vec![0; 8];
+async fn main() -> Result<(), Box<dyn Error>> {
+    let args = Args::parse();
+    let addr = format!("{}:{}", args.host.unwrap_or("0.0.0.0".into()), args.port.unwrap_or(8000));
+    let listener = TcpListener::bind(&addr).await?;
+    println!("Listening at {addr}");
 
     loop {
-        match socket.read(&mut buffer).await {
-            Ok(n) if n == 0 => {
-                return Ok(());
-            },
-            Ok(n) => {
-                socket.write_all(&buffer[..n]).await?;
-            },
-            Err(e) => {
-                eprintln!("echo_server: {e}");
-                return Ok(());
-            }
+        let (socket, addr) = listener.accept().await?;
+        println!("Connected to {addr:?}");
+        tokio::spawn(async move {
+            let _ = echo(socket, addr).await;
+        });
+    }
+}
+
+async fn echo(mut socket: TcpStream, addr: SocketAddr) -> Result<(), Box<dyn Error>> {
+    let mut buf = BytesMut::new();
+
+    loop {
+        socket.readable().await?;
+        let nbytes = socket.read_buf(&mut buf).await?;
+        if nbytes == 0 {
+            println!("{addr:?} disconnected");
+            return Ok(());
         }
+        socket.writable().await?;
+        socket.write_buf(&mut buf).await?;
     }
 }
