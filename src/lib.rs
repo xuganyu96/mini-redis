@@ -1,8 +1,8 @@
 //! Shared layers of abstraction: Bytes, Frame, Command, Connection, Client
 use bytes::{Buf, Bytes, BytesMut};
 use std::error::Error;
-use tokio::net::{TcpListener, TcpStream};
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
 
 type MyResult<T> = Result<T, Box<dyn Error>>;
 
@@ -11,22 +11,33 @@ const CRLF: &str = "\r\n";
 /// A client provides high-level methods for sending commands to and receiving
 /// commands from the server.
 pub struct Client {
-    listener: TcpListener,
-    // ... other states ...
+    connection: Connection,
 }
 
 impl Client {
     /// Connect to the server specified at the input address, or return any
     /// error while attempting the connect
     pub async fn connect(addr: &str) -> MyResult<Self> {
-        let listener = TcpListener::bind(addr).await?;
-        return Ok(Self { listener });
+        let socket = TcpStream::connect(addr).await?;
+
+        return Ok(Self {
+            connection: Connection::new(socket),
+        });
     }
 
     /// Send a "SET key val" command to the server. Return the Ok variant if
     /// the server returns a OK.
-    pub async fn set(&mut self, key: String, val: String) -> MyResult<()> {
-        todo!();
+    pub async fn set(&mut self, key: &str, val: &str) -> MyResult<()> {
+        let cmd = Frame::Array(vec![
+            Frame::Bulk(Bytes::from("SET")),
+            // TODO: unnecessary copy
+            Frame::Bulk(Bytes::copy_from_slice(key.as_bytes())),
+            Frame::Bulk(Bytes::copy_from_slice(val.as_bytes())),
+        ]);
+        self.connection.write_frame(&cmd).await?;
+        self.connection.read_frame().await?;
+
+        return Ok(());
     }
 
     /// Send a "GET key" command to the server. Return the Ok variant if the
@@ -35,19 +46,37 @@ impl Client {
     /// If the key has a match in the server, then the associated value is
     /// returned in the "Some" variant. If the key has no match, then the
     /// "None" variant is returned.
-    pub async fn get(&mut self, key: String) -> MyResult<Option<String>> {
-        todo!();
+    pub async fn get(&mut self, key: &str) -> MyResult<Option<Bytes>> {
+        let cmd = Frame::Array(vec![
+            Frame::Bulk(Bytes::from("GET")),
+            Frame::Bulk(Bytes::copy_from_slice(key.as_bytes())),
+        ]);
+        self.connection.write_frame(&cmd).await?;
+        let resp = self.connection.read_frame().await?;
+        if let Some(Frame::Bulk(bytes)) = resp {
+            return Ok(Some(bytes));
+        }
+        return Ok(None);
     }
 
-    /// Send a "POP key" command to the server. Return the Ok variant if the
+    /// Send a "DEL key" command to the server. Return the Ok variant if the
     /// server returns some valid results.
     ///
     /// If the key has a match in the server and the key is successfully
     /// deleted, then the associated value is returned. If the key has no
     /// match, or other things went wrong during the deletion, then the
     /// error message is returned.
-    pub async fn pop(&mut self, key: String) -> MyResult<Result<String, String>> {
-        todo!();
+    pub async fn del(&mut self, key: &str) -> MyResult<Option<i64>> {
+        let cmd = Frame::Array(vec![
+            Frame::Bulk(Bytes::from("DEL")),
+            Frame::Bulk(Bytes::copy_from_slice(key.as_bytes())),
+        ]);
+        self.connection.write_frame(&cmd).await?;
+        let resp = self.connection.read_frame().await?;
+        if let Some(Frame::Integer(num)) = resp {
+            return Ok(Some(num));
+        }
+        return Ok(None);
     }
 }
 
@@ -306,12 +335,11 @@ impl Connection {
     }
 
     /// Convert the input frame into bytes, then write into the socket
-    fn write_frame() {
-        todo!();
+    pub async fn write_frame(&mut self, frame: &Frame) -> Result<usize, Box<dyn Error>> {
+        self.socket.writable().await?;
+        let nbytes = self.socket.write(&frame.serialize()).await?;
+        return Ok(nbytes);
     }
-
-    /// Convert the command into the correct Frame, then pass into write_frame
-    fn emit_command(&mut self, cmd: Command) {}
 }
 
 #[cfg(test)]
