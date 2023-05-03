@@ -1,7 +1,8 @@
 //! Shared layers of abstraction: Bytes, Frame, Command, Connection, Client
-use bytes::{Buf, Bytes};
+use bytes::{Buf, Bytes, BytesMut};
 use std::error::Error;
 use tokio::net::{TcpListener, TcpStream};
+use tokio::io::AsyncReadExt;
 
 type MyResult<T> = Result<T, Box<dyn Error>>;
 
@@ -93,7 +94,7 @@ pub enum Frame {
 
 impl Frame {
     /// Serialize a frame into a byte array for transmission over the network
-    fn serialize(&self) -> Bytes {
+    pub fn serialize(&self) -> Bytes {
         return match self {
             Self::Simple(_) => self._serialize_simple_string(),
             Self::Error(_) => self._serialize_error(),
@@ -275,20 +276,33 @@ impl Frame {
 
 /// A wrapper around a TCP socket (TcpStream) for writing byte stream into
 /// Bytes and for parsing Bytes into frames
-struct Connection {
+pub struct Connection {
     socket: TcpStream,
 }
 
 impl Connection {
     /// Instantiate a new connection
-    fn new(socket: TcpStream) -> Self {
+    pub fn new(socket: TcpStream) -> Self {
         return Self { socket };
     }
 
     /// Read bytes from the TcpStream, then parse it. If there is a valid
     /// Frame in the bytes read, then return it. Else return None.
-    fn read_frame() -> Option<Frame> {
-        todo!();
+    pub async fn read_frame(&mut self) -> Result<Option<Frame>, Box<dyn Error>> {
+        let mut buf = BytesMut::with_capacity(4096);
+
+        loop {
+            // TODO: unnecessary copy but oh well
+            if let Some(frame) = Frame::parse(&mut Bytes::from(buf.to_vec())) {
+                return Ok(Some(frame));
+            }
+
+            self.socket.readable().await?;
+            let nbytes = self.socket.read_buf(&mut buf).await?;
+            if nbytes == 0 {
+                return Ok(None);
+            }
+        }
     }
 
     /// Convert the input frame into bytes, then write into the socket
