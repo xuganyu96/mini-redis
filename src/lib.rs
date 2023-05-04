@@ -28,13 +28,11 @@ impl Client {
     /// Send a "SET key val" command to the server. Return the Ok variant if
     /// the server returns a OK.
     pub async fn set(&mut self, key: &str, val: &str) -> MyResult<()> {
-        let cmd = Frame::Array(vec![
-            Frame::Bulk(Bytes::from("SET")),
-            // TODO: unnecessary copy
-            Frame::Bulk(Bytes::copy_from_slice(key.as_bytes())),
-            Frame::Bulk(Bytes::copy_from_slice(val.as_bytes())),
-        ]);
-        self.connection.write_frame(&cmd).await?;
+        let cmd = Command::set(
+            Bytes::copy_from_slice(key.as_bytes()),
+            Bytes::copy_from_slice(val.as_bytes()),
+        );
+        self.connection.write_frame(&cmd.to_frame()).await?;
         self.connection.read_frame().await?;
 
         return Ok(());
@@ -47,11 +45,8 @@ impl Client {
     /// returned in the "Some" variant. If the key has no match, then the
     /// "None" variant is returned.
     pub async fn get(&mut self, key: &str) -> MyResult<Option<Bytes>> {
-        let cmd = Frame::Array(vec![
-            Frame::Bulk(Bytes::from("GET")),
-            Frame::Bulk(Bytes::copy_from_slice(key.as_bytes())),
-        ]);
-        self.connection.write_frame(&cmd).await?;
+        let cmd = Command::get(Bytes::copy_from_slice(key.as_bytes()));
+        self.connection.write_frame(&cmd.to_frame()).await?;
         let resp = self.connection.read_frame().await?;
         if let Some(Frame::Bulk(bytes)) = resp {
             return Ok(Some(bytes));
@@ -67,11 +62,8 @@ impl Client {
     /// match, or other things went wrong during the deletion, then the
     /// error message is returned.
     pub async fn del(&mut self, key: &str) -> MyResult<Option<i64>> {
-        let cmd = Frame::Array(vec![
-            Frame::Bulk(Bytes::from("DEL")),
-            Frame::Bulk(Bytes::copy_from_slice(key.as_bytes())),
-        ]);
-        self.connection.write_frame(&cmd).await?;
+        let cmd = Command::del(Bytes::copy_from_slice(key.as_bytes()));
+        self.connection.write_frame(&cmd.to_frame()).await?;
         let resp = self.connection.read_frame().await?;
         if let Some(Frame::Integer(num)) = resp {
             return Ok(Some(num));
@@ -165,7 +157,7 @@ impl Command {
                         return None;
                     }
                     let key = frames.get(1).unwrap();
-                    if let Frame::Bulk(key_bytes)= key {
+                    if let Frame::Bulk(key_bytes) = key {
                         return Some(Self::del(Bytes::copy_from_slice(&key_bytes)));
                     }
                     return None;
@@ -376,19 +368,19 @@ impl Frame {
 
 /// A wrapper around a TCP socket (TcpStream) for writing byte stream into
 /// Bytes and for parsing Bytes into frames
-pub struct Connection {
+struct Connection {
     socket: TcpStream,
 }
 
 impl Connection {
     /// Instantiate a new connection
-    pub fn new(socket: TcpStream) -> Self {
+    fn new(socket: TcpStream) -> Self {
         return Self { socket };
     }
 
     /// Read bytes from the TcpStream, then parse it. If there is a valid
     /// Frame in the bytes read, then return it. Else return None.
-    pub async fn read_frame(&mut self) -> Result<Option<Frame>, Box<dyn Error>> {
+    async fn read_frame(&mut self) -> Result<Option<Frame>, Box<dyn Error>> {
         let mut buf = BytesMut::with_capacity(4096);
 
         loop {
@@ -406,7 +398,7 @@ impl Connection {
     }
 
     /// Convert the input frame into bytes, then write into the socket
-    pub async fn write_frame(&mut self, frame: &Frame) -> Result<usize, Box<dyn Error>> {
+    async fn write_frame(&mut self, frame: &Frame) -> Result<usize, Box<dyn Error>> {
         self.socket.writable().await?;
         let nbytes = self.socket.write(&frame.serialize()).await?;
         return Ok(nbytes);
@@ -602,10 +594,7 @@ mod tests {
 
     #[test]
     fn test_parse_command() {
-        assert_eq!(
-            Command::parse_command(&Frame::Simple("OK".into())),
-            None,
-        );
+        assert_eq!(Command::parse_command(&Frame::Simple("OK".into())), None,);
 
         assert_eq!(
             Command::parse_command(&Frame::Array(vec![
@@ -623,7 +612,7 @@ mod tests {
             ])),
             None,
         );
-        
+
         assert_eq!(
             Command::parse_command(&Frame::Array(vec![
                 Frame::Bulk(Bytes::from("SET")),
