@@ -2,7 +2,7 @@
 use bytes::{Buf, Bytes, BytesMut};
 use std::error::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
+use tokio::net::{TcpStream, ToSocketAddrs};
 
 type MyResult<T> = Result<T, Box<dyn Error>>;
 
@@ -17,7 +17,7 @@ pub struct Client {
 impl Client {
     /// Connect to the server specified at the input address, or return any
     /// error while attempting the connect
-    pub async fn connect(addr: &str) -> MyResult<Self> {
+    pub async fn connect<T: ToSocketAddrs>(addr: T) -> MyResult<Self> {
         let socket = TcpStream::connect(addr).await?;
 
         return Ok(Self {
