@@ -81,31 +81,102 @@ impl Client {
 }
 
 /// The Command enum provides abstraction over Frames
+#[derive(Debug, Clone, Eq, PartialEq)]
 enum Command {
-    Set { key: String, val: String },
-    Get { key: String },
-    Pop { key: String },
+    Set { key: Bytes, val: Bytes },
+    Get { key: Bytes },
+    Del { key: Bytes },
 }
 
 impl Command {
     /// Create a new Set command
-    fn set(key: String, val: String) -> Self {
+    fn set(key: Bytes, val: Bytes) -> Self {
         return Self::Set { key, val };
     }
 
     /// Create a new Get command
-    fn get(key: String) -> Self {
+    fn get(key: Bytes) -> Self {
         return Self::Get { key };
     }
 
     /// Create a new Pop command
-    fn pop(key: String) -> Self {
-        return Self::Pop { key };
+    fn del(key: Bytes) -> Self {
+        return Self::Del { key };
     }
 
     /// Convert a command into the appropriate Frame
     fn to_frame(&self) -> Frame {
-        todo!();
+        return match self {
+            Self::Set { key, val } => Frame::Array(vec![
+                Frame::Bulk(Bytes::from("SET")),
+                Frame::Bulk(Bytes::copy_from_slice(key)),
+                Frame::Bulk(Bytes::copy_from_slice(val)),
+            ]),
+            Self::Get { key } => Frame::Array(vec![
+                Frame::Bulk(Bytes::from("GET")),
+                Frame::Bulk(Bytes::copy_from_slice(key)),
+            ]),
+            Self::Del { key } => Frame::Array(vec![
+                Frame::Bulk(Bytes::from("DEL")),
+                Frame::Bulk(Bytes::copy_from_slice(key)),
+            ]),
+        };
+    }
+
+    /// Parse a frame back into a command. If the frame does not correspond to
+    /// any of the supported commands, return None
+    ///
+    /// If the frame does not strictly conform to the expected format of the
+    /// command, this method will return None. For example, if the input frame
+    /// has more than three elements, then it will never be parsed into a SET
+    /// command even if the first three elements form a valid SET command.
+    fn parse_command(frame: &Frame) -> Option<Self> {
+        if let Frame::Array(frames) = frame {
+            match frames.get(0) {
+                Some(Frame::Bulk(bytes)) if bytes == &Bytes::from("SET") => {
+                    if frames.len() != 3 {
+                        return None;
+                    }
+                    // unwrapping is ok because the length is already guaranteed
+                    let key = frames.get(1).unwrap();
+                    let val = frames.get(2).unwrap();
+                    if let Frame::Bulk(key) = key {
+                        if let Frame::Bulk(val) = val {
+                            return Some(Self::set(
+                                Bytes::copy_from_slice(key),
+                                Bytes::copy_from_slice(val),
+                            ));
+                        }
+                    }
+                    return None;
+                }
+                Some(Frame::Bulk(bytes)) if bytes == &Bytes::from("GET") => {
+                    if frames.len() != 2 {
+                        return None;
+                    }
+                    let key = frames.get(1).unwrap();
+                    if let Frame::Bulk(key) = key {
+                        return Some(Self::get(Bytes::copy_from_slice(&key)));
+                    }
+                    return None;
+                }
+                Some(Frame::Bulk(bytes)) if bytes == &Bytes::from("DEL") => {
+                    if frames.len() != 2 {
+                        return None;
+                    }
+                    let key = frames.get(1).unwrap();
+                    if let Frame::Bulk(key_bytes)= key {
+                        return Some(Self::del(Bytes::copy_from_slice(&key_bytes)));
+                    }
+                    return None;
+                }
+                _ => {
+                    return None;
+                }
+            }
+        }
+        // For now, all commands must be arrays
+        return None;
     }
 }
 
@@ -527,5 +598,40 @@ mod tests {
             Frame::parse(&mut Bytes::from("*2\r\n:0\r\n:1\r\n+++++++")),
             Some(Frame::Array(vec![Frame::Integer(0), Frame::Integer(1)])),
         );
+    }
+
+    #[test]
+    fn test_parse_command() {
+        assert_eq!(
+            Command::parse_command(&Frame::Simple("OK".into())),
+            None,
+        );
+
+        assert_eq!(
+            Command::parse_command(&Frame::Array(vec![
+                Frame::Bulk(Bytes::from("SET")),
+                Frame::Bulk(Bytes::from("foo")),
+                Frame::Bulk(Bytes::from("bar")),
+            ])),
+            Some(Command::set(Bytes::from("foo"), Bytes::from("bar"))),
+        );
+
+        assert_eq!(
+            Command::parse_command(&Frame::Array(vec![
+                Frame::Bulk(Bytes::from("SET")),
+                Frame::Bulk(Bytes::from("foo")),
+            ])),
+            None,
+        );
+        
+        assert_eq!(
+            Command::parse_command(&Frame::Array(vec![
+                Frame::Bulk(Bytes::from("SET")),
+                Frame::Bulk(Bytes::from("foo")),
+                Frame::Bulk(Bytes::from("bar")),
+                Frame::Bulk(Bytes::from("baz")),
+            ])),
+            None,
+        )
     }
 }
