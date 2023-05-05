@@ -1,89 +1,54 @@
-//! Asynchronous Redis server.
-//!
-//! There is a single listener on the port, but every connection will move
-//! into a new task using tokio::spawn
-use std::collections::HashMap;
-use tokio;
-use tokio::net::{ TcpListener, TcpStream };
-use mini_redis::{ Connection, Frame, Command };
-use std::sync::{ Arc, Mutex };
-use std::hash::{ Hash, Hasher };
-use std::collections::hash_map::DefaultHasher;
+//! Redis server
 use bytes::Bytes;
-
-struct ShardedHashMap<T, U> {
-    shards: Vec<Mutex<HashMap<T, U>>>,
-}
-
-impl<T: Hash + Eq, U: Clone> ShardedHashMap<T, U> {
-    fn new(n: usize) -> Self {
-        let mut shards = vec![];
-        for _ in 0..n {
-            shards.push(Mutex::new(HashMap::new()));
-        }
-
-        return Self { shards };
-    }
-
-    fn get(&self, key: &T) -> Option<U> {
-        let mut hasher = DefaultHasher::new();
-        key.hash(&mut hasher);
-        let shard = self.shards.get(hasher.finish() as usize % self.shards.len());
-        if let Some(shard) = shard {
-            let lock = shard.lock().unwrap();
-            let val = lock.get(key);
-            if let None = val {
-                return None;
-            }
-            if let Some(val) = val {
-                return Some(val.clone());
-            }
-        }
-        return None;
-    }
-
-    fn set(&self, key: T, val: U) {
-        let mut hasher = DefaultHasher::new();
-        key.hash(&mut hasher);
-        let shard = self.shards.get(hasher.finish() as usize % self.shards.len());
-        if let Some(shard) = shard {
-            let mut lock = shard.lock().unwrap();
-            lock.insert(key, val);
-        }
-    }
-}
+use redis::Command;
+use redis::Connection;
+use redis::Frame;
+use std::error::Error;
+use std::net::SocketAddr;
+use tokio::net::TcpListener;
 
 #[tokio::main]
-async fn main() {
-    let listener = TcpListener::bind("127.0.0.1:6379").await.unwrap();
-    let db: Arc<ShardedHashMap<String, Bytes>> = Arc::new(ShardedHashMap::new(10));
+async fn main() -> Result<(), Box<dyn Error>> {
+    let listener = TcpListener::bind("127.0.0.1:6379").await?;
 
-    while let Ok((stream, _)) = listener.accept().await {
-        let db = db.clone();
+    loop {
+        let (socket, addr) = listener.accept().await?;
         tokio::spawn(async move {
-            process(stream, db).await;
+            let connection = Connection::new(socket);
+            let _ = process(connection, addr).await;
         });
     }
 }
 
-async fn process(stream: TcpStream, db: Arc<ShardedHashMap<String, Bytes>>) {
-    let mut connection = Connection::new(stream);
-    while let Some(frame) = connection.read_frame().await.unwrap() {
-        let cmd = Command::from_frame(frame).unwrap();
-        let response = match cmd {
-            Command::Set(cmd) => {
-                db.set(cmd.key().to_string(), cmd.value().clone());
-                Frame::Simple("OK".to_string())
-            },
-            Command::Get(cmd) => {
-                match db.get(&cmd.key().to_string()) {
-                    Some(val) => Frame::Bulk(val.clone().into()),
-                    None => Frame::Null,
+async fn process(mut connection: Connection, addr: SocketAddr) -> Result<(), Box<dyn Error>> {
+    loop {
+        let frame = connection.read_frame().await?;
+        match frame {
+            None => {
+                println!("Disconnected from {addr:?}");
+                return Ok(());
+            }
+            Some(frame) => {
+                let cmd = Command::parse_command(&frame);
+                match cmd {
+                    None => {
+                        connection
+                            .write_frame(&Frame::Error("Illegal command".into()))
+                            .await?;
+                    }
+                    Some(Command::Set { key: _, val: _ }) => {
+                        connection.write_frame(&Frame::Simple("OK".into())).await?;
+                    }
+                    Some(Command::Get { key: _ }) => {
+                        connection
+                            .write_frame(&Frame::Bulk(Bytes::from("Hello")))
+                            .await?;
+                    }
+                    Some(Command::Del { key: _ }) => {
+                        connection.write_frame(&Frame::Integer(0)).await?;
+                    }
                 }
-            },
-            _ => unimplemented!("{:?} not implemented!", cmd),
+            }
         };
-        
-        connection.write_frame(&response).await.unwrap();
     }
 }

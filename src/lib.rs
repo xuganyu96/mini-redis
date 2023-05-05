@@ -74,7 +74,7 @@ impl Client {
 
 /// The Command enum provides abstraction over Frames
 #[derive(Debug, Clone, Eq, PartialEq)]
-enum Command {
+pub enum Command {
     Set { key: Bytes, val: Bytes },
     Get { key: Bytes },
     Del { key: Bytes },
@@ -82,22 +82,22 @@ enum Command {
 
 impl Command {
     /// Create a new Set command
-    fn set(key: Bytes, val: Bytes) -> Self {
+    pub fn set(key: Bytes, val: Bytes) -> Self {
         return Self::Set { key, val };
     }
 
     /// Create a new Get command
-    fn get(key: Bytes) -> Self {
+    pub fn get(key: Bytes) -> Self {
         return Self::Get { key };
     }
 
     /// Create a new Pop command
-    fn del(key: Bytes) -> Self {
+    pub fn del(key: Bytes) -> Self {
         return Self::Del { key };
     }
 
     /// Convert a command into the appropriate Frame
-    fn to_frame(&self) -> Frame {
+    pub fn to_frame(&self) -> Frame {
         return match self {
             Self::Set { key, val } => Frame::Array(vec![
                 Frame::Bulk(Bytes::from("SET")),
@@ -122,7 +122,7 @@ impl Command {
     /// command, this method will return None. For example, if the input frame
     /// has more than three elements, then it will never be parsed into a SET
     /// command even if the first three elements form a valid SET command.
-    fn parse_command(frame: &Frame) -> Option<Self> {
+    pub fn parse_command(frame: &Frame) -> Option<Self> {
         if let Frame::Array(frames) = frame {
             match frames.get(0) {
                 Some(Frame::Bulk(bytes)) if bytes == &Bytes::from("SET") => {
@@ -368,19 +368,19 @@ impl Frame {
 
 /// A wrapper around a TCP socket (TcpStream) for writing byte stream into
 /// Bytes and for parsing Bytes into frames
-struct Connection {
-    socket: TcpStream,
+pub struct Connection {
+    pub socket: TcpStream,
 }
 
 impl Connection {
     /// Instantiate a new connection
-    fn new(socket: TcpStream) -> Self {
+    pub fn new(socket: TcpStream) -> Self {
         return Self { socket };
     }
 
     /// Read bytes from the TcpStream, then parse it. If there is a valid
     /// Frame in the bytes read, then return it. Else return None.
-    async fn read_frame(&mut self) -> Result<Option<Frame>, Box<dyn Error>> {
+    pub async fn read_frame(&mut self) -> Result<Option<Frame>, Box<dyn Error>> {
         let mut buf = BytesMut::with_capacity(4096);
 
         loop {
@@ -398,7 +398,7 @@ impl Connection {
     }
 
     /// Convert the input frame into bytes, then write into the socket
-    async fn write_frame(&mut self, frame: &Frame) -> Result<usize, Box<dyn Error>> {
+    pub async fn write_frame(&mut self, frame: &Frame) -> Result<usize, Box<dyn Error>> {
         self.socket.writable().await?;
         let nbytes = self.socket.write(&frame.serialize()).await?;
         return Ok(nbytes);
