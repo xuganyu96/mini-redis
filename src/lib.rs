@@ -4,7 +4,7 @@ use std::error::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpStream, ToSocketAddrs};
 
-type MyResult<T> = Result<T, Box<dyn Error>>;
+pub type MyResult<T> = Result<T, Box<dyn Error>>;
 
 const CRLF: &str = "\r\n";
 
